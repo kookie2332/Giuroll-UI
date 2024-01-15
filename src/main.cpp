@@ -35,6 +35,8 @@ static bool desynced;
 typedef bool (__cdecl *desync_func)(void);
 desync_func is_likely_desynced;
 
+bool __fastcall giuroll_loaded() { return giuroll != NULL; }
+
 /** 
 * Function that checks if the is_likely_desynced function has been loaded or not.
 * @return true if the function is not NULL, and false otherwise.
@@ -145,12 +147,12 @@ int __fastcall CBattleClient_OnProcess(SokuLib::BattleClient* This) {
 bool __fastcall CNetworkMenu_OnProcess(SokuLib::MenuConnect* This) {
 	if (!network_init) {
 		giuroll = GetModuleHandleA("giuroll.dll");
-		if (giuroll == NULL) puts("WARNING: GIUROLL NOT DETECTED.");
+		if (!giuroll_loaded()) puts("WARNING: GIUROLL NOT DETECTED.");
 
 		is_likely_desynced = (desync_func)GetProcAddress(
 			giuroll,
 			"is_likely_desynced");
-		if (is_likely_desynced == NULL) {
+		if (giuroll_loaded() && !desync_func_detected()) {
 			puts("WARNING: DESYNC FUNCTION NOT DETECTED. MAKE SURE YOU ARE USING GIUROLL VERSION 0.6.13 OR LATER.");
 			int msgboxID = MessageBox(
 				NULL,
