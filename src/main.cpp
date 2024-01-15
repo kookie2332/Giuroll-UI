@@ -3,34 +3,76 @@
 //
 
 #include <SokuLib.hpp>
+#include <libloaderapi.h>
 
 static bool init = false;
-static int (SokuLib::BattleManager::*ogBattleMgrOnProcess)();
-static void (SokuLib::BattleManager::*ogBattleMgrOnRender)();
-static SokuLib::DrawUtils::Sprite text;
-static SokuLib::SWRFont font;
+static bool frame_changed = true;
 
-int __fastcall CBattleManager_OnRender(SokuLib::BattleManager *This)
-{
-	(This->*ogBattleMgrOnRender)();
-	text.draw();
-	return 0;
+static int (SokuLib::BattleClient::* ogBattleClientOnProcess)();
+static int (SokuLib::BattleClient::* ogBattleClientOnRender)();
+static SokuLib::BattleClient* (SokuLib::BattleClient::* ogBattleClientDestructor)(char unknown);
+
+static int (SokuLib::BattleServer::* ogBattleServerOnProcess)();
+static int (SokuLib::BattleServer::* ogBattleServerOnRender)();
+static SokuLib::BattleServer* (SokuLib::BattleServer::* ogBattleServerDestructor)(char unknown);
+
+static bool network_init = false;
+static int (SokuLib::MenuConnect::* ogNetworkMenuOnProcess)();
+static SokuLib::MenuConnect* (SokuLib::MenuConnect::* ogNetworkMenuOnDestruct)(unsigned char param);
+
+static SokuLib::DrawUtils::Sprite desync_text;
+static SokuLib::Vector2i display_text_real_size;
+
+// not real text to be displayed. 
+// Helps judge how far from the bottom left corner of the screen the desync_text should be - don't want to cover the delay number.
+static SokuLib::DrawUtils::Sprite delay_spacing_text;
+static SokuLib::Vector2i delay_text_real_size;
+
+static SokuLib::SWRFont font;
+static HMODULE giuroll;
+static bool desynced;
+
+typedef bool (__cdecl *desync_func)(void);
+desync_func is_likely_desynced;
+
+/** 
+* Function that checks if the is_likely_desynced function has been loaded or not.
+* @return true if the function is not NULL, and false otherwise.
+*/
+bool __fastcall desync_func_detected() { return is_likely_desynced != NULL; }
+
+void setText(const char* content) {
+	/*
+	* Sets the content of the text.
+	*/
+	desync_text.texture.createFromText(content, font, { 300, 300 }, &display_text_real_size);
+	desync_text.setSize(display_text_real_size.to<unsigned>());
+	desync_text.rect.width = display_text_real_size.x;
+	desync_text.rect.height = display_text_real_size.y;
+}
+
+void moveText(int xpos, int ypos) {
+	/*
+	* Moves the text to the corresponding x and y position.
+	* The origin (0,0) is in the top left corner of the game window.
+	*/
+	desync_text.setPosition(SokuLib::Vector2i{ xpos, ypos });
 }
 
 void loadFont()
 {
 	SokuLib::FontDescription desc;
 
-	// Pink
 	desc.r1 = 255;
-	desc.g1 = 155;
-	desc.b1 = 155;
-	// Light green
-	desc.r2 = 155;
-	desc.g2 = 255;
-	desc.b2 = 155;
-	desc.height = 24;
-	desc.weight = FW_BOLD;
+	desc.g1 = 0;
+	desc.b1 = 0;
+
+	desc.r2 = 255;
+	desc.g2 = 0;
+	desc.b2 = 0;
+
+	desc.height = 13;
+	desc.weight = FW_NORMAL;
 	desc.italic = 0;
 	desc.shadow = 4;
 	desc.bufferSize = 1000000;
@@ -44,21 +86,100 @@ void loadFont()
 	font.setIndirect(desc);
 }
 
-int __fastcall CBattleManager_OnProcess(SokuLib::BattleManager *This)
-{
-	if (!init) {
-		SokuLib::Vector2i realSize;
+void __fastcall Generic_OnRender() {
+	if (desynced) desync_text.draw();
+	frame_changed = true;
+}
 
-		loadFont();
-		text.texture.createFromText("Hello, world!", font, {300, 300}, &realSize);
-		text.setPosition(SokuLib::Vector2i{320 - realSize.x / 2, 240 - realSize.y / 2});
-		text.setSize(realSize.to<unsigned>());
-		text.rect.width = realSize.x;
-		text.rect.height = realSize.y;
+int __fastcall CBattleServer_OnRender(SokuLib::BattleServer* This) {
+	int out = (This->*ogBattleServerOnRender)();
+
+	Generic_OnRender();
+	return out;
+}
+
+int __fastcall CBattleClient_OnRender(SokuLib::BattleClient* This) {
+	int out = (This->*ogBattleClientOnRender)();
+
+	Generic_OnRender();
+	return out;
+}
+
+void __fastcall OnLoad(void *This) {
+	// Code to be run once at the start of a game.
+	loadFont();
+
+	// set delay spacing text
+	delay_spacing_text.texture.createFromText("00", font, {300, 300}, &delay_text_real_size);
+
+	// set desync text.
+	setText("DESYNCED");
+	moveText(delay_text_real_size.x, 480 - display_text_real_size.y - 3);
+
+	desynced = false;
+	frame_changed = true;
+}
+
+void __fastcall Generic_OnProcess(void* This, char* init_message) {
+	if (!init) {
+		puts(init_message);
+		OnLoad(This);
 		init = true;
 	}
-	text.setRotation(text.getRotation() + 0.01f);
-	return (This->*ogBattleMgrOnProcess)();
+	if (desync_func_detected() && frame_changed) {
+		desynced = is_likely_desynced();
+		frame_changed = false;
+	}
+}
+
+int __fastcall CBattleServer_OnProcess(SokuLib::BattleServer* This) {
+	Generic_OnProcess(This, "Server Initialised.");
+	return (This->*ogBattleServerOnProcess)();
+}
+
+int __fastcall CBattleClient_OnProcess(SokuLib::BattleClient* This) {
+	Generic_OnProcess(This, "Client Initialised.");
+	return (This->*ogBattleClientOnProcess)();
+}
+
+bool __fastcall CNetworkMenu_OnProcess(SokuLib::MenuConnect* This) {
+	if (!network_init) {
+		giuroll = GetModuleHandleA("giuroll.dll");
+		if (giuroll == NULL) puts("WARNING: GIUROLL NOT DETECTED.");
+
+		is_likely_desynced = (desync_func)GetProcAddress(
+			giuroll,
+			"is_likely_desynced");
+		if (is_likely_desynced == NULL) {
+			puts("WARNING: DESYNC FUNCTION NOT DETECTED. MAKE SURE YOU ARE USING GIUROLL VERSION 0.6.13 OR LATER.");
+			int msgboxID = MessageBox(
+				NULL,
+				(LPCTSTR)"Desync function not detected.\nMake sure you are using Giuroll version 0.6.13 or later.",
+				(LPCTSTR)"Warning",
+				MB_OK | MB_ICONWARNING
+			);
+		}
+		
+		network_init = true;
+	}
+	return (This->*ogNetworkMenuOnProcess)();
+}
+
+SokuLib::BattleServer* __fastcall CBattleServer_Destructor(SokuLib::BattleServer* This, int junk, char unknown) {
+	puts("Server destruct.");
+	init = false;
+	return (This->*ogBattleServerDestructor)(unknown);
+}
+
+SokuLib::BattleClient* __fastcall CBattleClient_Destructor(SokuLib::BattleClient* This, int junk, char unknown) {
+	puts("Client destruct.");
+	init = false;
+	return (This->*ogBattleClientDestructor)(unknown);
+}
+
+SokuLib::MenuConnect* __fastcall CNetworkMenu_OnDestruct(SokuLib::MenuConnect* This, int junk, unsigned char param) {
+	network_init = false;
+	return (This->*ogNetworkMenuOnDestruct)(param);
 }
 
 // We check if the game version is what we target (in our case, Soku 1.10a).
@@ -74,7 +195,7 @@ extern "C" __declspec(dllexport) bool Initialize(HMODULE hMyModule, HMODULE hPar
 	DWORD old;
 
 #ifdef _DEBUG
-	FILE *_;
+	FILE* _;
 
 	AllocConsole();
 	freopen_s(&_, "CONOUT$", "w", stdout);
@@ -83,8 +204,16 @@ extern "C" __declspec(dllexport) bool Initialize(HMODULE hMyModule, HMODULE hPar
 
 	puts("Hello, world!");
 	VirtualProtect((PVOID)RDATA_SECTION_OFFSET, RDATA_SECTION_SIZE, PAGE_EXECUTE_WRITECOPY, &old);
-	ogBattleMgrOnRender  = SokuLib::TamperDword(&SokuLib::VTable_BattleManager.onRender,  CBattleManager_OnRender);
-	ogBattleMgrOnProcess = SokuLib::TamperDword(&SokuLib::VTable_BattleManager.onProcess, CBattleManager_OnProcess);
+	ogBattleClientDestructor = SokuLib::TamperDword(&SokuLib::VTable_BattleClient.destructor, CBattleClient_Destructor);
+	ogBattleClientOnRender = SokuLib::TamperDword(&SokuLib::VTable_BattleClient.onRender, CBattleClient_OnRender);
+	ogBattleClientOnProcess = SokuLib::TamperDword(&SokuLib::VTable_BattleClient.onProcess, CBattleClient_OnProcess);
+
+	ogBattleServerDestructor = SokuLib::TamperDword(&SokuLib::VTable_BattleServer.destructor, CBattleServer_Destructor);
+	ogBattleServerOnRender = SokuLib::TamperDword(&SokuLib::VTable_BattleServer.onRender, CBattleServer_OnRender);
+	ogBattleServerOnProcess = SokuLib::TamperDword(&SokuLib::VTable_BattleServer.onProcess, CBattleServer_OnProcess);
+
+	ogNetworkMenuOnProcess = SokuLib::TamperDword(&SokuLib::VTable_ConnectMenu.onProcess, CNetworkMenu_OnProcess);
+	ogNetworkMenuOnDestruct = SokuLib::TamperDword(&SokuLib::VTable_ConnectMenu.onDestruct, CNetworkMenu_OnDestruct);
 	VirtualProtect((PVOID)RDATA_SECTION_OFFSET, RDATA_SECTION_SIZE, old, &old);
 
 	FlushInstructionCache(GetCurrentProcess(), nullptr, 0);
