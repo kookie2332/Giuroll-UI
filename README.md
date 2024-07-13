@@ -1,16 +1,18 @@
-# Giuroll-Desync-Detector
-Interfaces with Giruoll to display whether the game is desynced or not.
+# Giuroll-UI
+Interfaces with Giuroll to display UI elements purely in C++.
+
+Formerly named Giuroll-Desync-Detector.
 # Installation
 1. Ensure that your version of Giuroll is at least 0.6.13, downloadable [here](https://github.com/Giufin/giuroll/releases),
-2. Download the latest `giuroll_desync_detector.dll` mod from the [releases](https://github.com/kookie2332/Giuroll-Desync-Detector/releases) section,
-3. Move `giuroll_desync_detector.dll` into a folder named `giuroll_desync_detector` within the `Modules` folder of the game,
-4. Add the line `giurollDesyncDetector=Modules/giuroll_desync_detector/giuroll_desync_detector.dll` into your `SWRSToys.ini` file.
+2. Download the latest `giuroll_ui.dll` mod from the [releases](https://github.com/kookie2332/Giuroll-UI/releases) section,
+3. Move `giuroll_ui.dll` into a folder named `giuroll_ui` within the `Modules` folder of the game,
+4. Add the line `giuroll_ui=Modules/giuroll_desync_detector/giuroll_ui.dll` into your `SWRSToys.ini` file.
 
 <strong>Note:</strong>
 The mod will not work if you are using Giruoll version 0.6.12 or earlier. A pop-up message box will appear in the network screen if this is the case for you.
 
 # Issues
-Feel free to report any issues under the [Issues](https://github.com/kookie2332/Giuroll-Desync-Detector/issues) tab. Please:
+Feel free to report any issues under the [Issues](https://github.com/kookie2332/Giuroll-UI/issues) tab. Please:
 - Clearly describe what the problem is,
 - When you believe the problem occurs, and
 - Show the other mods that were active during the problem's occurrence. You can find the active mods in your `SWRSToys.ini` file.
@@ -30,8 +32,8 @@ All commands are to be run in `x86 Native Tools Command Prompt for VS 20XX`, unl
 
 2. Clone the repo and initialize.
 ```
-git clone https://github.com/kookie2332/Giuroll-Desync-Detector.git
-cd Giuroll-Desync-Detector
+git clone https://github.com/kookie2332/Giuroll-UI.git
+cd Giuroll-UI
 git submodule init
 git submodule update
 mkdir build
@@ -43,15 +45,15 @@ To build in Release, replace `-DCMAKE_BUILD_TYPE=Debug` with `-DCMAKE_BUILD_TYPE
 ## Compiling
 1. Go to the build directory (if you did the previous step you're already inside)
 
-```cd C:\Users\_Kookie\SokuProjects\Giuroll-Desync-Detector\build```
+```cd C:\Users\_Kookie\SokuProjects\Giuroll-UI\build```
 
 2. Invoke the compiler by running 
 
-```cmake --build . --target giuroll_desync_detector```
+```cmake --build . --target giuroll_ui```
 
 3. The file `giuroll_desync_detector.dll` will appear inside the build folder.
 4. To test the mod, you can add 
 
-```Giuroll_Desync_Detector=C:/Users/_Kookie/SokuProjects/Giuroll-Desync-Detector/build/giuroll_desync_detector.dll``` 
+```giuroll_ui=C:/Users/_Kookie/SokuProjects/Giuroll-UI/build/giuroll_ui.dll``` 
 
 on a new line in your `SWRSToys.ini` file.
