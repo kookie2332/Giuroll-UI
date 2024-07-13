@@ -51,7 +51,7 @@ To build in Release, replace `-DCMAKE_BUILD_TYPE=Debug` with `-DCMAKE_BUILD_TYPE
 
 ```cmake --build . --target giuroll_ui```
 
-3. The file `giuroll_desync_detector.dll` will appear inside the build folder.
+3. The file `giuroll_ui.dll` will appear inside the build folder.
 4. To test the mod, you can add 
 
 ```giuroll_ui=C:/Users/_Kookie/SokuProjects/Giuroll-UI/build/giuroll_ui.dll``` 
