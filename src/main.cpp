@@ -5,14 +5,73 @@
 #include <SokuLib.hpp>
 #include <libloaderapi.h>
 #include <string>
+#include <sstream>
+
+struct UIValues {
+	bool valid;
+	bool likely_desynced;
+	int ping;
+	int current_rollback;
+	int max_rollback;
+	int player_delay;
+	int opponent_delay;
+	bool toggle_stats; // TODO: REMOVE THIS FIELD ONCE THIS CODE CAN ACTIVATE UI DISPLAY ON ITS OWN.
+};
+
+bool ui_data_equal(UIValues* lhs, UIValues* rhs) {
+	if (lhs == nullptr && rhs == nullptr) return true;
+	if (lhs == nullptr || rhs == nullptr) return false;
+	return
+		lhs->likely_desynced == rhs->likely_desynced &&
+		lhs->ping == rhs->ping &&
+		lhs->current_rollback == rhs->current_rollback &&
+		lhs->max_rollback == rhs->max_rollback &&
+		lhs->player_delay == rhs->player_delay &&
+		lhs->opponent_delay == rhs->opponent_delay &&
+		lhs->toggle_stats == rhs->toggle_stats;
+}
+
+std::string ui_data_to_str(UIValues* data) {
+	std::stringstream ss;
+	if (data == nullptr) ss << "ui values is nullptr." << std::endl;
+	else {
+		ss << "Likely Desynced: " << data->likely_desynced << "\n"
+			<< "Ping: " << data->ping << "\n"
+			<< "Current Rollback: " << data->current_rollback << "\n"
+			<< "Maximum Rollback: " << data->max_rollback << "\n"
+			<< "Player Delay: " << data->player_delay << "\n"
+			<< "Opponent Delay: " << data->opponent_delay << "\n"
+			<< "Toggle Stats: " << data->toggle_stats << std::endl;
+	}
+	return ss.str();
+}
+
+UIValues get_null_uidata() {
+	UIValues out = UIValues{
+		false,
+		false,
+		-1,
+		-1,
+		-1,
+		-1,
+		-1,
+		false
+	};
+	return out;
+}
 
 static bool init = false;
 static bool frame_changed = true;
+
+/*static bool desynced;
 static int ping = -1;
-static int player_delay = -1;
-static int opponent_delay = -1;
 static int current_rollback = -1;
 static uint8_t max_rollback = 0;
+static int player_delay = -1;
+static int opponent_delay = -1;*/
+static UIValues null_uidata = get_null_uidata();
+static UIValues uidata = null_uidata;
+static UIValues previous_uidata = null_uidata;
 
 static int (SokuLib::BattleClient::* ogBattleClientOnProcess)();
 static int (SokuLib::BattleClient::* ogBattleClientOnRender)();
@@ -36,46 +95,31 @@ static SokuLib::Vector2i delay_text_real_size;
 
 static SokuLib::SWRFont font;
 static HMODULE giuroll;
-static bool desynced;
 
-typedef bool(__cdecl *desync_func)(void);
-desync_func is_likely_desynced;
-
+/*typedef bool(__cdecl* desync_func)(void);
 typedef int(__cdecl* ping_func)(void);
-ping_func get_ping;
-
 typedef int(__cdecl* player_delay_func)(void);
-player_delay_func get_player_delay;
-
 typedef int(__cdecl* opponent_delay_func)(void);
-opponent_delay_func get_opponent_delay;
-
 typedef int(__cdecl* current_rollback_func)(void);
-current_rollback_func get_current_rollback;
+typedef uint8_t(__cdecl* max_rollback_func)(void);*/
+typedef void(__cdecl* ui_values_func)(UIValues*);
 
-typedef uint8_t(__cdecl* max_rollback_func)(void);
-max_rollback_func get_max_rollback;
+/*desync_func is_likely_desynced;
+ping_func get_ping;
+player_delay_func get_player_delay;
+opponent_delay_func get_opponent_delay;
+current_rollback_func get_current_rollback;
+max_rollback_func get_max_rollback;*/
+ui_values_func get_ui_values;
 
 bool __fastcall giuroll_loaded() { return giuroll != NULL; }
-
-/** 
-* Function that checks if the is_likely_desynced function has been loaded or not.
-* @return true if the function is not NULL, and false otherwise.
-*/
-bool __fastcall desync_func_detected() { return is_likely_desynced != NULL; }
-
-/**
-* Function that checks if the get_ping function has been loaded or not.
-*/
+/*bool __fastcall desync_func_detected() { return is_likely_desynced != NULL; }
 bool __fastcall ping_func_detected() { return get_ping != NULL; }
-
 bool __fastcall player_delay_func_detected() { return get_player_delay != NULL; }
-
 bool __fastcall opponent_delay_func_detected() { return get_opponent_delay != NULL; }
-
 bool __fastcall current_rollback_func_detected() { return get_current_rollback != NULL; }
-
-bool __fastcall max_rollback_func_detected() { return get_max_rollback != NULL; }
+bool __fastcall max_rollback_func_detected() { return get_max_rollback != NULL; }*/
+bool __fastcall ui_values_func_detected() { return get_ui_values != NULL; }
 
 void setText(const char* content) {
 	/*
@@ -123,7 +167,7 @@ void loadFont()
 }
 
 void __fastcall Generic_OnRender() {
-	if (desynced) desync_text.draw();
+	if (!ui_data_equal(&uidata, &null_uidata) && uidata.likely_desynced) desync_text.draw();
 	frame_changed = true;
 }
 
@@ -152,7 +196,6 @@ void __fastcall OnLoad(void *This) {
 	setText("DESYNCED");
 	moveText(delay_text_real_size.x, 480 - display_text_real_size.y - 3);
 
-	desynced = false;
 	frame_changed = true;
 }
 
@@ -163,18 +206,20 @@ void __fastcall Generic_OnProcess(void* This, char* init_message) {
 		init = true;
 	}
 	if (frame_changed) {
-		if (desync_func_detected()) desynced = is_likely_desynced();
+		/*if (desync_func_detected()) desynced = is_likely_desynced();
 		if (ping_func_detected()) ping = get_ping();
-		if (player_delay_func_detected())player_delay = get_player_delay();
+		if (player_delay_func_detected()) player_delay = get_player_delay();
 		if (opponent_delay_func_detected()) opponent_delay = get_opponent_delay();
 		if (current_rollback_func_detected()) current_rollback = get_current_rollback();
-		if (max_rollback_func_detected()) {
-			max_rollback = get_max_rollback();
-			puts(("Max rollback: " + std::to_string(max_rollback)).c_str());
+		if (max_rollback_func_detected()) max_rollback = get_max_rollback();*/
+		if (ui_values_func_detected()) {
+			get_ui_values(&uidata);
+			//puts(std::to_string(uidata.ping).c_str());
+			if (!ui_data_equal(&uidata, &previous_uidata)) {
+				puts(ui_data_to_str(&uidata).c_str());
+				previous_uidata = uidata; // TODO: THIS IS TEMPORARY. REMOVE THIS AFTER CHECKING THAT THE UI DETAILS MATCH WHILE PLAYING.
+			}
 		}
-
-		//int fps = *(int*)0x8985d8;
-		//puts(("fps: " + std::to_string(fps)).c_str());
 		frame_changed = false;
 	}
 }
@@ -193,20 +238,19 @@ bool __fastcall CNetworkMenu_OnProcess(SokuLib::MenuConnect* This) {
 	if (!network_init) {
 		giuroll = GetModuleHandleA("giuroll.dll");
 		bool gl = giuroll_loaded();
+		//bool warnings_present = false;
+		std::string warning_message = "";
 
-		if (!gl) puts("WARNING: GIUROLL NOT DETECTED.");
-
-		is_likely_desynced = (desync_func)GetProcAddress(giuroll, "is_likely_desynced");
+		/*is_likely_desynced = (desync_func)GetProcAddress(giuroll, "is_likely_desynced");
 		get_ping = (ping_func)GetProcAddress(giuroll, "get_ping");
 		get_player_delay = (player_delay_func)GetProcAddress(giuroll, "get_player_delay");
 		get_opponent_delay = (opponent_delay_func)GetProcAddress(giuroll, "get_opponent_delay");
 		get_current_rollback = (current_rollback_func)GetProcAddress(giuroll, "get_current_rollback");
-		get_max_rollback = (max_rollback_func)GetProcAddress(giuroll, "get_max_rollback");
+		get_max_rollback = (max_rollback_func)GetProcAddress(giuroll, "get_max_rollback");*/
+		get_ui_values = (ui_values_func)GetProcAddress(giuroll, "get_ui_values");
 
 		if (gl) {
-			bool warnings_present = false;
-			std::string warning_message = "";
-			if (!desync_func_detected()) {
+			/*if (!desync_func_detected()) {
 				puts("WARNING: DESYNC FUNCTION NOT DETECTED. MAKE SURE YOU ARE USING GIUROLL VERSION 0.6.13 OR LATER.");
 				warning_message += "Desync function not detected (Giuroll >= 0.6.13).\n";
 			}
@@ -252,16 +296,28 @@ bool __fastcall CNetworkMenu_OnProcess(SokuLib::MenuConnect* This) {
 			}
 			else {
 				puts("Hooked max rollback func.");
-			}
+			}*/
 
-			if (!warning_message.empty()) {
-				int msgboxID = MessageBox(
-					NULL,
-					(LPCTSTR)warning_message.c_str(),
-					(LPCTSTR)"Warning",
-					MB_OK | MB_ICONWARNING
-				);
+			if (!ui_values_func_detected()) {
+				puts("WARNING: UI VALUES FUNCTION NOT DETECTED. MAKE SURE YOU ARE USING GIUROLL VERSION 0.6.18 OR LATER.");
+				warning_message += "UI values function not detected (Giuroll >= 0.6.18).\n";
 			}
+			else {
+				puts("Hooked UI values func.");
+			}
+		}
+		else {
+			puts("WARNING: GIUROLL NOT DETECTED.");
+			// Didn't add to warning_message because most people would theoretically turn off only giuroll to use sokuroll. They would probably leave this mod active.
+		}
+
+		if (!warning_message.empty()) {
+			int msgboxID = MessageBox(
+				NULL,
+				(LPCTSTR)warning_message.c_str(),
+				(LPCTSTR)"Warning",
+				MB_OK | MB_ICONWARNING
+			);
 		}
 		
 		network_init = true;
